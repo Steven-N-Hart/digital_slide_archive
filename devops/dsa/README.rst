@@ -195,3 +195,171 @@ Database Backup
 ---------------
 
 You may want to periodically back up the database.  The standard ``mongodump`` tool can be used for this via a command line ``docker compose exec mongodb /usr/bin/mongodump --db girder --archive --gzip > dsa_girder.dump.gz``.  Restoring is similar: ``docker compose exec -T mongodb /usr/bin/mongorestore --db girder --archive --gzip < /tmp/dsa_girder.dump.gz``; you may want to add ``--drop`` as flag to the restore process.  See Mongo's official documentation for details.
+
+DICOMweb Import
+---------------
+
+DSA can serve whole-slide images stored on a remote `DICOMweb <https://www.dicomstandard.org/using/dicomweb>`_ server (e.g. Google Cloud Healthcare API, DCM4CHEE, Orthanc) without copying files locally.  Images are read on demand via WADO-RS and appear in the Girder UI like any other item.
+
+How it works
+~~~~~~~~~~~~
+
+A **DICOMweb assetstore** (provided by ``large-image-source-dicom``, which is already installed) records the base URL of the remote DICOMweb store.  Each series is represented as a Girder item with one file record per DICOM instance.  No image data is stored locally; all pixel data is streamed from the remote server when a tile is requested.
+
+Importing a curated list of series
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When a DICOMweb store contains many slides (potentially millions), the built-in import endpoint is impractical because it performs a full QIDO-RS scan of the entire store.  The utility script ``utils/import_dicomweb_series.py`` solves this by accepting a specific list of series URLs and importing only those — making exactly one WADO-RS metadata call per series instead of enumerating the whole store.
+
+**Input format**
+
+Each URL must be a fully qualified DICOMweb series URL::
+
+    https://<host>/v1/.../dicomWeb/studies/<StudyInstanceUID>/series/<SeriesInstanceUID>
+
+For Google Cloud Healthcare API the URL structure is::
+
+    https://healthcare.googleapis.com/v1/projects/<project>/locations/<location>/datasets/<dataset>/dicomStores/<store>/dicomWeb/studies/<StudyUID>/series/<SeriesUID>
+
+URLs can be passed as positional arguments, read from a file (one per line), or piped via stdin.  Blank lines and lines starting with ``#`` are ignored.  Duplicate URLs and minor typos (e.g. a double slash after the hostname) are handled automatically.
+
+**Authentication**
+
+On Google Cloud infrastructure the script uses `Application Default Credentials <https://cloud.google.com/docs/authentication/application-default-credentials>`_ (ADC) automatically — no key file or token configuration is needed provided the environment has appropriate IAM permissions.  Outside of GCP, pass a short-lived Bearer token with ``--token``::
+
+    --token "$(gcloud auth print-access-token)"
+
+``google-auth`` must be available in the container.  It is included in the default ``pip:`` list in ``provision.yaml``; if you have overridden that file make sure it is present.
+
+On a machine that is not GCP infrastructure, mount host ADC credentials into the container via ``docker-compose.override.yml`` and run ``gcloud auth login --update-adc`` on the host once::
+
+    services:
+      girder:
+        environment:
+          GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
+        volumes:
+          - ${HOME}/.config/gcloud/application_default_credentials.json:/root/.config/gcloud/application_default_credentials.json:ro
+
+**Usage**
+
+Run the script inside the running girder container::
+
+    # Dry-run first to validate URLs without writing to the database
+    docker exec dsa-girder-1 python \
+        /opt/digital_slide_archive/devops/dsa/utils/import_dicomweb_series.py \
+        --dry-run \
+        --file /mnt/data/series_list.txt
+
+    # Import into a specific collection and sub-folder, as a specific user
+    docker exec dsa-girder-1 python \
+        /opt/digital_slide_archive/devops/dsa/utils/import_dicomweb_series.py \
+        --file /mnt/data/series_list.txt \
+        --folder "collection/Pathology/WSIs/Cohort A" \
+        --username admin
+
+    # Import into a user's Private folder (user is created if it does not exist)
+    docker exec dsa-girder-1 python \
+        /opt/digital_slide_archive/devops/dsa/utils/import_dicomweb_series.py \
+        --file /mnt/data/series_list.txt \
+        --folder "user/m087494/Private/Project 1" \
+        --username m087494
+
+    # Pass URLs directly as arguments
+    docker exec dsa-girder-1 python \
+        /opt/digital_slide_archive/devops/dsa/utils/import_dicomweb_series.py \
+        "https://healthcare.googleapis.com/v1/projects/.../series/1.2.3" \
+        "https://healthcare.googleapis.com/v1/projects/.../series/1.2.4"
+
+    # Pipe from stdin
+    cat series_list.txt | docker exec -i dsa-girder-1 python \
+        /opt/digital_slide_archive/devops/dsa/utils/import_dicomweb_series.py \
+        --file -
+
+**Options**
+
+``--file PATH``
+    Read URLs from a file.  Use ``-`` for stdin.
+
+``--folder GIRDER_PATH``
+    Destination as a Girder resource path.  Two root formats are supported:
+
+    ``collection/<Name>[/<sub> ...]``
+        A top-level collection.  Created if absent (requires admin).
+        Example: ``collection/Pathology/WSIs/Cohort A``
+
+    ``user/<login>/Public[/<sub> ...]``
+    ``user/<login>/Private[/<sub> ...]``
+        A folder inside a user's Public or Private home directory.
+        The user must already exist (or be created via ``--username``).
+        Example: ``user/m087494/Private/Project 1``
+
+    Any intermediate sub-folders are created automatically.
+    Default: ``collection/DICOMweb Imports``.
+
+``--username LOGIN``
+    Girder admin login to use as the creator of all imported resources
+    (collection, folders, items).  Defaults to the first admin user found.
+
+``--token BEARER_TOKEN``
+    Static Bearer token for authentication.  If omitted, ADC is used.
+
+``--dry-run``
+    Parse and validate URLs without writing anything to the database.
+
+``--refresh-token``
+    Update the stored Bearer token in all DICOMweb assetstores and exit.
+    No URL arguments are needed.  See Token expiry below.
+
+**What gets created**
+
+For each unique series the script creates:
+
+- A sub-folder named after the StudyInstanceUID under the destination folder.
+- A Girder item named after the SeriesInstanceUID, registered as a large image
+  so HistomicsUI shows the slide viewer automatically.
+- One Girder file record per DICOM instance (SOPInstanceUID), pointing at the
+  DICOMweb assetstore.
+
+The DICOMweb assetstore itself (one per backing store URL) is created automatically on the first run if it does not already exist.  The operation is **idempotent** — re-running the same URL list updates existing records rather than creating duplicates.
+
+Token expiry
+~~~~~~~~~~~~
+
+GCP Bearer tokens expire after approximately one hour.  The token is stored in
+the assetstore document so Girder can authenticate when serving tile and download
+requests.  It must be refreshed before it expires, otherwise the slide viewer
+will stop loading tiles.
+
+Refresh manually::
+
+    docker exec dsa-girder-1 python \
+        /opt/digital_slide_archive/devops/dsa/utils/import_dicomweb_series.py \
+        --refresh-token
+
+To refresh automatically, add a host cron entry (runs every 45 minutes)::
+
+    */45 * * * * docker exec dsa-girder-1 python \
+        /opt/digital_slide_archive/devops/dsa/utils/import_dicomweb_series.py \
+        --refresh-token >> /path/to/digital_slide_archive/devops/dsa/logs/token_refresh.log 2>&1
+
+Refresh logs are written to ``devops/dsa/logs/token_refresh.log``.
+
+Exposing the series list file
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The file must be accessible inside the girder container.  The easiest approach is to mount a host directory via ``docker-compose.override.yml``::
+
+    services:
+      girder:
+        volumes:
+          - /path/on/host:/mnt/data
+
+Then place ``series_list.txt`` in ``/path/on/host/`` and reference it as ``/mnt/data/series_list.txt``.
+
+Limitations
+~~~~~~~~~~~
+
+- The DICOMweb assetstore is **read-only** — uploads are not supported.
+- All URLs in a single invocation must point to the same DICOMweb store (one assetstore per store).  Split your list by store and run once per store if needed.
+- ``--folder user/...`` paths require the user to already exist in Girder (created automatically when ``--username`` names a non-existent user).
+- FUSE mount (``girder mount``) must be available for some downstream features; see the Permissions section above.

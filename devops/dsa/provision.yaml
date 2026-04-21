@@ -18,11 +18,12 @@ use-defaults: True
 mongo-compat: True
 # A list of additional pip modules to install; if any are girder plugins with
 # client-side code, also specify rebuild-client.
-# pip:
-#   - girder-oauth
+pip:
+  - -e /opt/digital_slide_archive/devops/dsa/dicom_import_plugin
+  - -e /opt/girder/plugins/oauth
 #   - girder-ldap
 # rebuild-client may be False, True (for production mode), or "development"
-rebuild-client: False
+rebuild-client: True
 # Run additional shell commands before start
 # shell:
 #   - ls
@@ -71,6 +72,12 @@ resources:
     #     preferredAssetstore: resource:assetstore/Assetstore
     # attrs_update: True
 settings:
+  oauth.providers_enabled:
+    - microsoft
+  oauth.ignore_registration_policy: True
+  oauth.microsoft_client_id: ""
+  oauth.microsoft_client_secret: ""
+  oauth.microsoft_tenant_id: ""
   worker.broker: "amqp://guest:guest@rabbitmq"
   worker.backend: "rpc://guest:guest@rabbitmq"
   worker.api_url: "http://girder:8080/api/v1"

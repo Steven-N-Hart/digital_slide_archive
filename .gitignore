@@ -5,10 +5,13 @@ _build*
 .*.swo
 .eggs
 .tox
+*.egg-info/
 .vagrant
 ansible/roles/girder.girder
 ansible/roles/girder.mongodb
 ansible/sample*.cfg
 docker-compose.local.yml
+docker-compose.override.yml
 worker.local.cfg
 docs/.bundle
+.env

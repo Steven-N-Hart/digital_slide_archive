@@ -23,6 +23,9 @@ services:
     # Set DSA_USER to a user id that is part of the docker group (e.g.,
     # `DSA_USER=$(id -u):$(id -g)`).  This makes files in assetstores and logs
     # owned by that user and provides permissions to manage docker
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       DSA_USER: ${DSA_USER:-}
       DSA_PROVISION_YAML: ${DSA_PROVISION_YAML:-/opt/digital_slide_archive/devops/dsa/provision.yaml}
@@ -32,6 +35,7 @@ services:
       #   You can also set girder settings here:
       # GIRDER_SETTING_CORE_HTTP_ONLY_COOKIES: true
       # GIRDER_SETTING_HISTOMICSUI_LOGIN_SESSION_EXPIRY_MINUTES: 15
+      # OAuth settings are injected via GIRDER_SETTING_* entries in .env (see env_file above)
       #   If you want to authorize docker image repositories on the host
       #   machine and have them accessed without further authorization within
       #   Girder, you can specify a docker config location, mount it (see
@@ -58,6 +62,8 @@ services:
       - ./start_girder.sh:/opt/digital_slide_archive/devops/dsa/start_girder.sh
       # Location to store logs
       - ./logs:/logs
+      # Patched Microsoft OAuth provider (fixes missing redirect_uri in auth/token requests)
+      - ./microsoft_oauth_provider.py:/opt/girder/plugins/oauth/girder_oauth/providers/microsoft.py:ro
 
       # For local development, uncomment the set of mounts associated with the
       # local source files.  Adding the editable egg directories first allows

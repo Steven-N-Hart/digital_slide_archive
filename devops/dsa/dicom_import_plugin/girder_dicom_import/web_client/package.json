@@ -1,0 +1,11 @@
+{
+  "name": "@dsa/dicom-import",
+  "version": "0.1.0",
+  "peerDependencies": {
+    "@girder/core": "*"
+  },
+  "girderPlugin": {
+    "name": "dicom_import",
+    "main": "./main.js"
+  }
+}

@@ -453,6 +453,11 @@ def merge_environ_opts(opts):
     for key, value in os.environ.items():
         if not value or not value.strip():
             continue
+        if key == 'DSA_ADMIN_PASSWORD':
+            if opts.admin is None:
+                opts.admin = {}
+            opts.admin['password'] = value
+            continue
         if key == 'DSA_WORKER_API_URL':
             key = 'worker.api_url'
         elif key.startswith('DSA_SETTING_'):
