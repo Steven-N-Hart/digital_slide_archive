@@ -4,6 +4,7 @@ import HierarchyWidget from '@girder/core/views/widgets/HierarchyWidget';
 import { wrap } from '@girder/core/utilities/PluginUtils';
 
 const MODAL_ID = 'g-dicom-import-modal';
+const REFRESH_MODAL_ID = 'g-dicom-refresh-modal';
 
 /**
  * Lazily create (and cache) the import modal in the document body.
@@ -97,6 +98,97 @@ function getModal() {
 
     return $(`#${MODAL_ID}`);
 }
+
+function getRefreshModal() {
+    if ($(`#${REFRESH_MODAL_ID}`).length) {
+        return $(`#${REFRESH_MODAL_ID}`);
+    }
+
+    $('body').append(`
+        <div class="modal fade" id="${REFRESH_MODAL_ID}" tabindex="-1" role="dialog"
+             aria-labelledby="g-dicom-refresh-title">
+          <div class="modal-dialog" role="document">
+            <div class="modal-content">
+              <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal"
+                        aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                <h4 class="modal-title" id="g-dicom-refresh-title">
+                  Authorization Token Expired
+                </h4>
+              </div>
+              <div class="modal-body">
+                <p>Your DICOMweb authorization token has expired.
+                   Enter a new token to restore access.</p>
+                <div class="form-group">
+                  <label for="g-dicom-refresh-token">New GCP Bearer token</label>
+                  <input type="password" id="g-dicom-refresh-token" class="form-control"
+                    placeholder="Paste output of: gcloud auth print-access-token" />
+                </div>
+                <div id="g-dicom-refresh-error" class="alert alert-danger"
+                     style="display:none"></div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-default"
+                        data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary"
+                        id="g-dicom-refresh-submit">Refresh Token</button>
+              </div>
+            </div>
+          </div>
+        </div>`);
+
+    $(document).on('click', '#g-dicom-refresh-submit', function () {
+        const token = $('#g-dicom-refresh-token').val().trim();
+        if (!token) {
+            $('#g-dicom-refresh-error').text('Please enter a token.').show();
+            return;
+        }
+        $('#g-dicom-refresh-error').hide();
+        $(this).prop('disabled', true).text('Refreshing…');
+
+        restRequest({
+            method: 'POST',
+            url: 'dicom_import/refresh_token',
+            contentType: 'application/json',
+            data: JSON.stringify({ token }),
+        }).done((resp) => {
+            $(`#${REFRESH_MODAL_ID}`).modal('hide');
+            events.trigger('g:alert', {
+                text: `Token refreshed (${resp.updated} assetstore(s) updated). ` +
+                      'Reload the page to view the image.',
+                type: 'success',
+                timeout: 10000,
+                icon: 'ok',
+            });
+        }).fail((err) => {
+            const msg = (err.responseJSON && err.responseJSON.message) || err.statusText;
+            $('#g-dicom-refresh-error').text(`Error: ${msg}`).show();
+        }).always(() => {
+            $('#g-dicom-refresh-submit').prop('disabled', false).text('Refresh Token');
+        });
+    });
+
+    return $(`#${REFRESH_MODAL_ID}`);
+}
+
+let _refreshPending = false;
+
+$(document).ajaxError(function (event, jqXHR, ajaxSettings) {
+    if (!/\/item\/[^/]+\/tiles/.test(ajaxSettings.url || '')) return;
+    const msg = ((jqXHR.responseJSON || {}).message || '').toLowerCase();
+    const isAuthError = jqXHR.status === 401 ||
+        (jqXHR.status === 400 && /unauthorized|401/.test(msg));
+    if (isAuthError) {
+        if (_refreshPending) return;
+        _refreshPending = true;
+        const $modal = getRefreshModal();
+        $modal.find('#g-dicom-refresh-token').val('');
+        $modal.find('#g-dicom-refresh-error').hide();
+        $modal.find('#g-dicom-refresh-submit').prop('disabled', false).text('Refresh Token');
+        $modal.one('hidden.bs.modal', () => { _refreshPending = false; });
+        $modal.modal('show');
+    }
+});
 
 wrap(HierarchyWidget, 'render', function (render) {
     render.call(this);

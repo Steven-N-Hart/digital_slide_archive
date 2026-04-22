@@ -14,6 +14,7 @@ from .import_logic import (
     import_series,
     make_token_session,
     parse_and_deduplicate,
+    refresh_assetstore_token,
     validate_single_store,
 )
 
@@ -23,6 +24,7 @@ class DICOMImportResource(Resource):
         super().__init__()
         self.resourceName = 'dicom_import'
         self.route('POST', ('import',), self.importSeries)
+        self.route('POST', ('refresh_token',), self.refreshToken)
 
     @access.user
     @autoDescribeRoute(
@@ -64,6 +66,22 @@ class DICOMImportResource(Resource):
         t.start()
 
         return Job().filter(job, user)
+
+    @access.user
+    @autoDescribeRoute(
+        Description('Update the stored Bearer token for DICOMweb assetstores.')
+        .jsonParam('body', 'JSON with token (str) and optional base_url (str)',
+                   requireObject=True, paramType='body')
+        .errorResponse()
+    )
+    def refreshToken(self, body):
+        from girder.exceptions import RestException
+        token = body.get('token') or None
+        base_url = body.get('base_url') or None
+        if not token:
+            raise RestException('token is required.', code=400)
+        n = refresh_assetstore_token(base_url=base_url, token=token)
+        return {'updated': n}
 
 
 def _run_import_job(job_id):

@@ -14,6 +14,56 @@ SeriesRef = namedtuple('SeriesRef', ['base_url', 'study_uid', 'series_uid'])
 
 SOP_INSTANCE_UID_TAG = '00080018'
 
+# Map DICOMweb hex tag → human-readable key stored in item['meta']
+_DICOM_TAGS = {
+    '00100010': 'PatientName',
+    '00100020': 'PatientID',
+    '00100030': 'PatientBirthDate',
+    '00100040': 'PatientSex',
+    '00080020': 'StudyDate',
+    '00080030': 'StudyTime',
+    '00081030': 'StudyDescription',
+    '00200010': 'StudyID',
+    '00200011': 'SeriesNumber',
+    '0008103E': 'SeriesDescription',
+    '00080060': 'Modality',
+    '00180015': 'BodyPartExamined',
+    '00181030': 'ProtocolName',
+    '00080070': 'Manufacturer',
+    '00081090': 'ManufacturerModelName',
+    '00280010': 'Rows',
+    '00280011': 'Columns',
+    '00280030': 'PixelSpacing',
+    '00080008': 'ImageType',
+}
+
+
+def _decode_dicom_value(tag_dict):
+    """Decode a DICOMweb tag dict to a Python scalar or list."""
+    vr = tag_dict.get('vr', '')
+    values = tag_dict.get('Value', [])
+    if not values:
+        return None
+    if vr == 'PN':
+        decoded = [
+            v.get('Alphabetic', '') if isinstance(v, dict) else str(v)
+            for v in values
+        ]
+    else:
+        decoded = list(values)
+    return decoded[0] if len(decoded) == 1 else decoded
+
+
+def dicom_meta_to_item_meta(dicomweb_meta):
+    """Extract well-known DICOM tags into a plain dict for item['meta']."""
+    result = {}
+    for tag, name in _DICOM_TAGS.items():
+        if tag in dicomweb_meta:
+            value = _decode_dicom_value(dicomweb_meta[tag])
+            if value is not None:
+                result[name] = value
+    return result
+
 
 # ---------------------------------------------------------------------------
 # URL parsing
@@ -288,6 +338,18 @@ def import_series(ref, assetstore, dest_parent, dest_parent_type, creator_user,
     if metadata:
         item['dicomweb_meta'] = metadata[0]
     item = Item().save(item)
+
+    if metadata:
+        item_meta = dicom_meta_to_item_meta(metadata[0])
+        if item_meta:
+            Item().setMetadata(item, item_meta)
+        else:
+            available = sorted(metadata[0].keys())
+            logger.warning(
+                'No recognized DICOM tags found in series metadata. '
+                'Available tags (%d): %s',
+                len(available), available,
+            )
 
     # File record per instance (idempotent via reuseExisting)
     first_file = None
