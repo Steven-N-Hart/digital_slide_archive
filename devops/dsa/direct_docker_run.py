@@ -151,6 +151,11 @@ def run(task, **kwargs):
     except Exception:
         pass
 
+    # PyTorch's multi-worker DataLoader needs more shared memory than Docker's
+    # 64 MiB default, otherwise workers die with "Bus error" / "killed by
+    # signal: Bus error" mid-segmentation.
+    kwargs.setdefault('shm_size', '8g')
+
     # volumes_from inherits /Export/Shared as :ro from the worker.  Override the
     # TRIDENT staging subtree with a dedicated rw mount so the CLI container can
     # write segmentation masks, patch coords, and embeddings.
