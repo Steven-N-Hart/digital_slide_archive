@@ -20,6 +20,7 @@ mongo-compat: True
 # client-side code, also specify rebuild-client.
 pip:
   - -e /opt/digital_slide_archive/devops/dsa/dicom_import_plugin
+  - -e /opt/digital_slide_archive/devops/dsa/trident_cleanup_plugin
   - -e /opt/girder/plugins/oauth
 #   - girder-ldap
 # rebuild-client may be False, True (for production mode), or "development"
@@ -103,8 +104,8 @@ settings:
 # slicer-cli-image:
 #   - dsarchive/histomicstk:latest
 # List slicer-cli-images to always pull, and load
-slicer-cli-image-pull:
-  - dsarchive/histomicstk:latest
+# slicer-cli-image-pull:
+#   - dsarchive/histomicstk:latest
 # The worker can specify parameters for provisioning
 # worker-rabbitmq-host: girder:8080
 worker-rabbitmq-user: guest
