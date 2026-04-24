@@ -79,21 +79,8 @@ docker compose exec -T mongodb /usr/bin/mongorestore --db girder --archive --gzi
 
 ### Linting
 ```bash
-pre-commit run --all-files    # runs flake8, autopep8, pyupgrade, codespell, etc.
+pre-commit run --all-files
 ```
-
-Flake8 config is in `setup.cfg`: max line length 100, docstrings ignored.
-
-## Architecture
-
-Five services run in the standard deployment:
-1. **girder** — serves the web UI and REST API at port 8080
-2. **mongodb** — stores Girder metadata, users, settings
-3. **memcached** (or **redis** in ver5) — tile/image cache for large_image
-4. **rabbitmq** — message broker between girder and worker
-5. **worker** — Celery worker that runs Slicer CLI Docker tasks
-
-The `ver5` deployment adds a **logging** sidecar container that captures Docker logs to `./logs/`.
 
 ## Provisioning System
 
