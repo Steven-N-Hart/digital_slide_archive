@@ -18,3 +18,5 @@ docs/.bundle
 
 # TLS certs/keys for the nginx proxy (private, never commit)
 devops/dsa/nginx/certs/
+
+.claude
