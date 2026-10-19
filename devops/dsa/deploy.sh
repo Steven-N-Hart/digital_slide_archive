@@ -72,6 +72,12 @@ if [[ "${RESTART}" == "true" ]]; then
     DSA_USER="$(id -u):$(id -g)" docker compose down
     DSA_USER="$(id -u):$(id -g)" docker compose up -d
     echo "==> DSA stack is up"
+    echo "==> Waiting for Girder to be healthy..."
+    until curl -s -f -o /dev/null http://localhost:8080/api/v1/system/version; do
+        echo -n . "."
+        sleep 5
+    done
+    echo "==> Girder is healthy!"
 fi
 
 # ── Register image in running DSA ─────────────────────────────────────────────

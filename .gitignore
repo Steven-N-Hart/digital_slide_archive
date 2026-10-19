@@ -15,3 +15,6 @@ docker-compose.override.yml
 worker.local.cfg
 docs/.bundle
 .env
+
+# TLS certs/keys for the nginx proxy (private, never commit)
+devops/dsa/nginx/certs/

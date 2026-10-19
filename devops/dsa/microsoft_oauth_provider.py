@@ -55,12 +55,19 @@ class Microsoft(ProviderBase):
             client_credential=self.clientSecret,
             authority=self._authority(),
         )
+        # self.redirectUri is built in girder_oauth/rest.py via cherrypy.url(), which
+        # sees the internal plain-HTTP request behind the nginx TLS proxy and yields
+        # http://bir-cpail40s/... The authorization request (getUrl) instead used
+        # getApiUrl(), which honors the core.server_root setting and yields https://.
+        # The two redirect_uris must match exactly or Microsoft rejects the token
+        # exchange with AADSTS500112. Rebuild from getApiUrl() so both agree.
+        callbackUrl = '/'.join((getApiUrl(), 'oauth', 'microsoft', 'callback'))
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', DeprecationWarning)
             result = app.acquire_token_by_authorization_code(
                 code,
                 self._AUTH_SCOPES,
-                redirect_uri=self.redirectUri,
+                redirect_uri=callbackUrl,
             )
         if 'access_token' not in result:
             strings = result['error'], result['error_description']
